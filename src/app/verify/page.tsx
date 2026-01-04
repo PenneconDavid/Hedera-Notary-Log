@@ -5,17 +5,21 @@ import { useSearchParams } from 'next/navigation';
 import FileDropzone from '@/components/FileDropzone';
 import HashDisplay from '@/components/HashDisplay';
 import VerifyResult from '@/components/VerifyResult';
-import { hashFile, isValidHashFormat } from '@/lib/crypto/hash';
-import type { VerifyStatus, VerifyMatch, VerifyResponse } from '@/types';
+import { computeCommitment, hashFile, isValidHashFormat } from '@/lib/crypto/hash';
+import type { RevealBundle, VerifyStatus, VerifyMatch, VerifyResponse } from '@/types';
 
 function VerifyContent() {
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<VerifyStatus>('idle');
   const [inputMode, setInputMode] = useState<'file' | 'hash'>('file');
+  const [verifyMode, setVerifyMode] = useState<'hash' | 'commitment'>('hash');
   const [hashInput, setHashInput] = useState('');
   const [computedHash, setComputedHash] = useState<string | null>(null);
+  const [computedCommitment, setComputedCommitment] = useState<string | null>(null);
+  const [salt, setSalt] = useState<string>('');
   const [matches, setMatches] = useState<VerifyMatch[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loadedRevealBundle, setLoadedRevealBundle] = useState<RevealBundle | null>(null);
 
   // Check for URL params on mount
   useEffect(() => {
@@ -23,11 +27,13 @@ function VerifyContent() {
     const commitmentParam = searchParams.get('commitment');
 
     if (hashParam) {
+      setVerifyMode('hash');
       setHashInput(hashParam);
       setInputMode('hash');
       // Auto-verify
       verifyHash(hashParam);
     } else if (commitmentParam) {
+      setVerifyMode('commitment');
       setHashInput(commitmentParam);
       setInputMode('hash');
       // Auto-verify commitment
@@ -97,22 +103,44 @@ function VerifyContent() {
     try {
       const hash = await hashFile(file);
       setComputedHash(hash);
-      await verifyHash(hash);
+      if (verifyMode === 'hash') {
+        await verifyHash(hash);
+        return;
+      }
+
+      // commitment mode: require salt (or reveal bundle)
+      const saltToUse = loadedRevealBundle?.salt || salt.trim();
+      if (!saltToUse) {
+        setStatus('error');
+        setError('Private commitment verification requires a salt (paste it below or upload a reveal bundle).');
+        return;
+      }
+
+      const commitment = await computeCommitment(hash, saltToUse);
+      setComputedCommitment(commitment);
+      await verifyCommitment(commitment);
     } catch (err) {
       console.error('File hash error:', err);
       setError('Failed to hash file. Please try again.');
       setStatus('error');
     }
-  }, [verifyHash]);
+  }, [verifyHash, verifyCommitment, verifyMode, salt, loadedRevealBundle]);
 
   const handleHashSubmit = useCallback(async () => {
+    if (verifyMode === 'commitment') {
+      await verifyCommitment(hashInput);
+      return;
+    }
     await verifyHash(hashInput);
-  }, [hashInput, verifyHash]);
+  }, [hashInput, verifyHash, verifyCommitment, verifyMode]);
 
   const handleReset = useCallback(() => {
     setStatus('idle');
     setHashInput('');
     setComputedHash(null);
+    setComputedCommitment(null);
+    setSalt('');
+    setLoadedRevealBundle(null);
     setMatches([]);
     setError(null);
   }, []);
@@ -154,6 +182,54 @@ function VerifyContent() {
       {/* Main Flow */}
       {status !== 'found' && status !== 'not_found' && (
         <div className="space-y-6">
+          {/* Verification Mode */}
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
+            <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">
+              Verification Mode
+            </label>
+            <div className="flex bg-zinc-900 rounded-xl p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setVerifyMode('hash');
+                  setLoadedRevealBundle(null);
+                  setSalt('');
+                  setComputedCommitment(null);
+                }}
+                className={`
+                  flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors
+                  ${verifyMode === 'hash'
+                    ? 'bg-zinc-800 text-zinc-100'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                  }
+                `}
+              >
+                Public Hash
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setVerifyMode('commitment');
+                  setComputedCommitment(null);
+                }}
+                className={`
+                  flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors
+                  ${verifyMode === 'commitment'
+                    ? 'bg-zinc-800 text-zinc-100'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                  }
+                `}
+              >
+                Private Commitment
+              </button>
+            </div>
+            <p className="text-xs text-zinc-500 mt-3">
+              {verifyMode === 'commitment'
+                ? 'Upload the original file + provide the salt (or upload the reveal bundle) to recompute the commitment.'
+                : 'Upload the original file or paste its SHA-256 hash.'}
+            </p>
+          </div>
+
           {/* Mode Tabs */}
           <div className="flex bg-zinc-900 rounded-xl p-1">
             <button
@@ -184,10 +260,82 @@ function VerifyContent() {
 
           {/* File Upload Mode */}
           {inputMode === 'file' && (
-            <FileDropzone
-              onFileSelect={handleFileSelect}
-              disabled={status === 'searching'}
-            />
+            <div className="space-y-4">
+              <FileDropzone
+                onFileSelect={handleFileSelect}
+                disabled={status === 'searching'}
+              />
+
+              {/* Commitment helpers */}
+              {verifyMode === 'commitment' && (
+                <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm text-zinc-200 font-medium">Salt / Reveal bundle</p>
+                      <p className="text-xs text-zinc-500">
+                        The salt is never sent to the server. It’s used locally to recompute the commitment.
+                      </p>
+                    </div>
+                    <label className="inline-flex items-center gap-2 px-3 py-2 bg-zinc-800 hover:bg-zinc-700 rounded-lg text-sm text-zinc-200 cursor-pointer">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" />
+                      </svg>
+                      Upload reveal bundle
+                      <input
+                        type="file"
+                        className="hidden"
+                        accept="application/json,.json"
+                        onChange={async (e) => {
+                          const f = e.target.files?.[0];
+                          if (!f) return;
+                          try {
+                            const text = await f.text();
+                            const bundle = JSON.parse(text) as RevealBundle;
+                            if (
+                              bundle?.version !== '1.0' ||
+                              typeof bundle.salt !== 'string' ||
+                              typeof bundle.hash !== 'string' ||
+                              typeof bundle.commitment !== 'string'
+                            ) {
+                              throw new Error('Invalid reveal bundle format');
+                            }
+                            setLoadedRevealBundle(bundle);
+                            setSalt(bundle.salt);
+                            setComputedHash(bundle.hash);
+                            setComputedCommitment(bundle.commitment);
+                            setError(null);
+                          } catch (err) {
+                            console.error(err);
+                            setLoadedRevealBundle(null);
+                            setError('Could not read reveal bundle. Make sure it is a valid Notary Log JSON bundle.');
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">
+                      Salt
+                    </label>
+                    <input
+                      type="text"
+                      value={salt}
+                      onChange={(e) => {
+                        setSalt(e.target.value);
+                        setLoadedRevealBundle(null);
+                      }}
+                      placeholder="Paste salt (hex)..."
+                      className="
+                        w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg
+                        text-zinc-200 placeholder:text-zinc-600 font-mono
+                        focus:outline-none focus:border-emerald-600
+                      "
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {/* Hash Input Mode */}
@@ -195,13 +343,13 @@ function VerifyContent() {
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">
-                  SHA-256 Hash or Commitment
+                  {verifyMode === 'commitment' ? 'Commitment (hex)' : 'SHA-256 Hash'}
                 </label>
                 <input
                   type="text"
                   value={hashInput}
                   onChange={(e) => setHashInput(e.target.value)}
-                  placeholder="Enter 64-character hex hash..."
+                  placeholder={verifyMode === 'commitment' ? 'Paste commitment hex...' : 'Enter 64-character hex hash...'}
                   className="
                     w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg
                     text-zinc-200 placeholder:text-zinc-600 font-mono
@@ -300,6 +448,11 @@ function VerifyContent() {
             <HashDisplay hash={computedHash} label="Computed Hash" />
           )}
 
+          {/* Computed Commitment Display */}
+          {computedCommitment && status !== 'searching' && (
+            <HashDisplay hash={computedCommitment} label="Computed Commitment" />
+          )}
+
           {/* Error State */}
           {error && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4">
@@ -328,7 +481,7 @@ function VerifyContent() {
           {/* Info */}
           <div className="text-center text-xs text-zinc-600">
             <p>
-              Files are hashed locally. Only the hash is sent to verify against Hedera.
+              Files are hashed locally. Only the hash/commitment is sent to verify against Hedera.
             </p>
           </div>
         </div>

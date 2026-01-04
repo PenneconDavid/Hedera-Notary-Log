@@ -4,13 +4,15 @@ import { useState, useCallback } from 'react';
 import FileDropzone from '@/components/FileDropzone';
 import HashDisplay from '@/components/HashDisplay';
 import Receipt from '@/components/Receipt';
-import { hashFile, generateNonce, formatFileSize } from '@/lib/crypto/hash';
+import { hashFile, computeCommitment, generateNonce, generateSalt, formatFileSize } from '@/lib/crypto/hash';
 import type { 
   NotarizeStatus, 
   FileInfo, 
   NotarizationReceipt, 
   HCSMessagePayload,
-  NotarizeResponse 
+  NotarizeResponse,
+  NotarizationMode,
+  RevealBundle,
 } from '@/types';
 
 const APP_VERSION = '0.2.0';
@@ -21,15 +23,28 @@ export default function NotarizePage() {
   const [error, setError] = useState<string | null>(null);
   const [receipt, setReceipt] = useState<NotarizationReceipt | null>(null);
   const [note, setNote] = useState('');
+  const [mode, setMode] = useState<NotarizationMode>('public_hash');
+  const [salt, setSalt] = useState<string | null>(null);
+  const [commitment, setCommitment] = useState<string | null>(null);
 
   const handleFileSelect = useCallback(async (selectedFile: File) => {
     setError(null);
     setReceipt(null);
     setStatus('hashing');
+    setSalt(null);
+    setCommitment(null);
 
     try {
       // Compute hash
       const hash = await hashFile(selectedFile);
+
+      // If we're in commitment mode, generate salt + commitment client-side.
+      if (mode === 'commitment') {
+        const newSalt = generateSalt(32);
+        const newCommitment = await computeCommitment(hash, newSalt);
+        setSalt(newSalt);
+        setCommitment(newCommitment);
+      }
 
       setFile({
         name: selectedFile.name,
@@ -43,10 +58,15 @@ export default function NotarizePage() {
       setError('Failed to hash file. Please try again.');
       setStatus('error');
     }
-  }, []);
+  }, [mode]);
 
   const handleSubmit = useCallback(async () => {
     if (!file?.hash) return;
+    if (mode === 'commitment' && (!salt || !commitment)) {
+      setError('Missing salt/commitment. Please re-select the file and try again.');
+      setStatus('error');
+      return;
+    }
 
     setError(null);
     setStatus('submitting');
@@ -55,11 +75,19 @@ export default function NotarizePage() {
       // Build payload
       const payload: HCSMessagePayload = {
         schema: 'notarylog@2',
-        content: {
-          mode: 'public_hash',
-          hash: file.hash,
-          hashAlg: 'SHA-256',
-        },
+        content:
+          mode === 'commitment'
+            ? {
+                mode: 'commitment',
+                commitment: commitment!,
+                commitmentAlg: 'SHA256_SALTED',
+                hashAlg: 'SHA-256',
+              }
+            : {
+                mode: 'public_hash',
+                hash: file.hash,
+                hashAlg: 'SHA-256',
+              },
         file: {
           size: file.size,
           name: file.name,
@@ -93,18 +121,36 @@ export default function NotarizePage() {
 
       // Create receipt
       const newReceipt: NotarizationReceipt = {
-        mode: 'public_hash',
-        hash: file.hash,
+        mode,
+        ...(mode === 'commitment' ? { commitment: commitment! } : { hash: file.hash }),
         topicId: data.topicId,
         transactionId: data.transactionId,
         sequenceNumber: data.sequenceNumber,
         consensusTimestamp: data.consensusTimestamp,
         mirrorLookup: {
           topicId: data.topicId,
-          queryHint: `hash=${file.hash}`,
+          queryHint: mode === 'commitment' ? `commitment=${commitment!}` : `hash=${file.hash}`,
         },
         createdAt: new Date().toISOString(),
       };
+
+      // If commitment mode, store the reveal bundle locally (salt is NEVER sent to server/Hedera).
+      let revealBundle: RevealBundle | undefined;
+      if (mode === 'commitment') {
+        revealBundle = {
+          version: '1.0',
+          hash: file.hash,
+          salt: salt!,
+          commitment: commitment!,
+          commitmentAlg: 'SHA256_SALTED',
+          createdAt: new Date().toISOString(),
+        };
+        try {
+          localStorage.setItem('notarylog:lastRevealBundle', JSON.stringify(revealBundle));
+        } catch {
+          // ignore storage failures (private browsing, etc.)
+        }
+      }
 
       setReceipt(newReceipt);
       setStatus('success');
@@ -113,13 +159,15 @@ export default function NotarizePage() {
       setError(err instanceof Error ? err.message : 'Submission failed. Please try again.');
       setStatus('error');
     }
-  }, [file, note]);
+  }, [file, note, mode, salt, commitment]);
 
   const handleReset = useCallback(() => {
     setFile(null);
     setReceipt(null);
     setError(null);
     setNote('');
+    setSalt(null);
+    setCommitment(null);
     setStatus('idle');
   }, []);
 
@@ -153,6 +201,61 @@ export default function NotarizePage() {
       {/* Main Flow */}
       {status !== 'success' && (
         <div className="space-y-6">
+          {/* Mode Toggle */}
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
+            <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">
+              Notarization Mode
+            </label>
+            <div className="flex bg-zinc-900 rounded-xl p-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('public_hash');
+                  setSalt(null);
+                  setCommitment(null);
+                }}
+                className={`
+                  flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors
+                  ${mode === 'public_hash'
+                    ? 'bg-zinc-800 text-zinc-100'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                  }
+                `}
+              >
+                Public Hash
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('commitment');
+                  // If a file hash already exists, derive a new salt/commitment immediately.
+                  if (file?.hash) {
+                    (async () => {
+                      const newSalt = generateSalt(32);
+                      const newCommitment = await computeCommitment(file.hash!, newSalt);
+                      setSalt(newSalt);
+                      setCommitment(newCommitment);
+                    })();
+                  }
+                }}
+                className={`
+                  flex-1 py-2 px-4 rounded-lg text-sm font-medium transition-colors
+                  ${mode === 'commitment'
+                    ? 'bg-zinc-800 text-zinc-100'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                  }
+                `}
+              >
+                Private Commitment
+              </button>
+            </div>
+            <p className="text-xs text-zinc-500 mt-3">
+              {mode === 'commitment'
+                ? 'Stores a salted commitment on Hedera (the raw file hash is NOT stored). Save your reveal bundle to verify later.'
+                : 'Stores the raw SHA-256 file hash on Hedera.'}
+            </p>
+          </div>
+
           {/* File Upload */}
           {!file && (
             <FileDropzone
@@ -244,7 +347,63 @@ export default function NotarizePage() {
               </div>
 
               {/* Hash Display */}
-              {file.hash && <HashDisplay hash={file.hash} />}
+              {mode === 'commitment' ? (
+                <>
+                  {commitment && <HashDisplay hash={commitment} label="Commitment (stored on Hedera)" />}
+                  {file.hash && (
+                    <div className="opacity-90">
+                      <HashDisplay hash={file.hash} label="File Hash (local only)" truncate />
+                    </div>
+                  )}
+                  <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
+                    <p className="text-sm text-zinc-300 font-medium mb-1">Reveal bundle</p>
+                    <p className="text-xs text-zinc-500 mb-3">
+                      Download and store this safely. It contains the salt needed to verify the commitment later.
+                      The salt is never sent to the server.
+                    </p>
+                    <button
+                      type="button"
+                      disabled={!salt || !commitment || !file.hash}
+                      onClick={() => {
+                        const bundle: RevealBundle = {
+                          version: '1.0',
+                          hash: file.hash!,
+                          salt: salt!,
+                          commitment: commitment!,
+                          commitmentAlg: 'SHA256_SALTED',
+                          createdAt: new Date().toISOString(),
+                        };
+                        const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `notarylog-reveal-${bundle.createdAt.replace(/[:.]/g, '-')}.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        URL.revokeObjectURL(url);
+                      }}
+                      className="
+                        inline-flex items-center gap-2 px-4 py-2
+                        bg-zinc-800 hover:bg-zinc-700 disabled:bg-zinc-900 disabled:text-zinc-600 disabled:cursor-not-allowed
+                        text-zinc-100 text-sm font-medium rounded-lg transition-colors
+                      "
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3"
+                        />
+                      </svg>
+                      Download reveal bundle
+                    </button>
+                  </div>
+                </>
+              ) : (
+                file.hash && <HashDisplay hash={file.hash} />
+              )}
 
               {/* Optional Note */}
               <div>
