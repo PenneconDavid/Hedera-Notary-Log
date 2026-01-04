@@ -49,6 +49,42 @@ export function getHederaConfig(): HederaConfig {
 }
 
 /**
+ * Parse operator private key in a few common formats.
+ *
+ * Supported:
+ * - DER-encoded hex (usually starts with 30...): use PrivateKey.fromStringDer()
+ * - Raw hex with optional 0x prefix (64 hex chars): use PrivateKey.fromStringECDSA() or ED25519 fallback
+ * - Hedera SDK string formats: use PrivateKey.fromString()
+ */
+function parseOperatorPrivateKey(operatorKeyRaw: string): PrivateKey {
+  const key = operatorKeyRaw.trim();
+  const keyNo0x = key.startsWith('0x') || key.startsWith('0X') ? key.slice(2) : key;
+
+  // If it's pure hex, choose a more explicit parser to avoid SDK warnings/mis-detection.
+  if (/^[0-9a-fA-F]+$/.test(keyNo0x)) {
+    const hex = keyNo0x.toLowerCase();
+
+    // DER-encoded keys typically start with 30 (ASN.1 sequence) and are longer than raw 32-byte keys.
+    if (hex.startsWith('30') && hex.length > 80) {
+      return PrivateKey.fromStringDer(hex);
+    }
+
+    // Raw 32-byte private keys (common when copied as 0x... ECDSA key)
+    if (hex.length === 64) {
+      try {
+        return PrivateKey.fromStringECDSA(hex);
+      } catch {
+        // Some accounts are ED25519; allow fallback.
+        return PrivateKey.fromStringED25519(hex);
+      }
+    }
+  }
+
+  // Fallback: let SDK attempt to parse (handles mnemonic, pem, etc.)
+  return PrivateKey.fromString(key);
+}
+
+/**
  * Create a configured Hedera client
  * 
  * IMPORTANT: This should only be called server-side (API routes)
@@ -63,7 +99,7 @@ export function createHederaClient(): Client {
 
   // Set the operator (account that pays for transactions)
   const operatorId = AccountId.fromString(config.operatorId);
-  const operatorKey = PrivateKey.fromString(config.operatorKey);
+  const operatorKey = parseOperatorPrivateKey(config.operatorKey);
   
   client.setOperator(operatorId, operatorKey);
 
