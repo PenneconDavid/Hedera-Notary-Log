@@ -5,6 +5,7 @@ import FileDropzone from '@/components/FileDropzone';
 import HashDisplay from '@/components/HashDisplay';
 import Receipt from '@/components/Receipt';
 import { hashFile, computeCommitment, generateNonce, generateSalt, formatFileSize } from '@/lib/crypto/hash';
+import { hasMetaMask, signNotarizationEip712 } from '@/lib/wallet/metamask';
 import type { 
   NotarizeStatus, 
   FileInfo, 
@@ -26,6 +27,8 @@ export default function NotarizePage() {
   const [mode, setMode] = useState<NotarizationMode>('public_hash');
   const [salt, setSalt] = useState<string | null>(null);
   const [commitment, setCommitment] = useState<string | null>(null);
+  const [walletAddress, setWalletAddress] = useState<`0x${string}` | null>(null);
+  const [signWithWallet, setSignWithWallet] = useState(false);
 
   const handleFileSelect = useCallback(async (selectedFile: File) => {
     setError(null);
@@ -107,10 +110,23 @@ export default function NotarizePage() {
       };
 
       // Submit to API
+      const clientSignature =
+        signWithWallet && hasMetaMask()
+          ? await signNotarizationEip712({
+              payload,
+              expectedChainId: payload.meta.env === 'mainnet' ? 295 : 296,
+              rpcUrlForAddChain: payload.meta.env === 'mainnet' ? 'https://mainnet.hashio.io/api' : 'https://testnet.hashio.io/api',
+            })
+          : undefined;
+
+      if (clientSignature?.evmAddress) {
+        setWalletAddress(clientSignature.evmAddress as `0x${string}`);
+      }
+
       const response = await fetch('/api/notarize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ payload }),
+        body: JSON.stringify({ payload, clientSignature }),
       });
 
       const data: NotarizeResponse = await response.json();
@@ -132,6 +148,14 @@ export default function NotarizePage() {
           queryHint: mode === 'commitment' ? `commitment=${commitment!}` : `hash=${file.hash}`,
         },
         createdAt: new Date().toISOString(),
+        ...(clientSignature?.evmAddress
+          ? {
+              signer: {
+                wallet: 'MetaMask',
+                evmAddress: clientSignature.evmAddress,
+              },
+            }
+          : {}),
       };
 
       // If commitment mode, store the reveal bundle locally (salt is NEVER sent to server/Hedera).
@@ -201,6 +225,41 @@ export default function NotarizePage() {
       {/* Main Flow */}
       {status !== 'success' && (
         <div className="space-y-6">
+          {/* Wallet signing */}
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">
+                  Wallet signing (optional)
+                </label>
+                <p className="text-xs text-zinc-500">
+                  If enabled, MetaMask will sign an EIP-712 notarization payload so verifiers can confirm the signer identity.
+                  The server still pays the HCS submission fee.
+                </p>
+                {walletAddress && (
+                  <p className="mt-2 text-xs text-zinc-400 font-mono break-all">
+                    Connected: {walletAddress}
+                  </p>
+                )}
+              </div>
+              <label className="inline-flex items-center gap-2 text-sm text-zinc-200">
+                <input
+                  type="checkbox"
+                  checked={signWithWallet}
+                  onChange={(e) => setSignWithWallet(e.target.checked)}
+                  className="accent-emerald-500"
+                  disabled={!hasMetaMask()}
+                />
+                Sign with MetaMask
+              </label>
+            </div>
+            {!hasMetaMask() && (
+              <p className="mt-2 text-xs text-amber-400">
+                MetaMask not detected. Install MetaMask to enable signing.
+              </p>
+            )}
+          </div>
+
           {/* Mode Toggle */}
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
             <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">

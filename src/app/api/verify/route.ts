@@ -20,7 +20,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { findHashMatches, findCommitmentMatches } from '@/lib/hedera/mirror';
 import { isHederaConfigured } from '@/lib/hedera/client';
 import { isValidHash, isValidCommitment } from '@/types';
-import type { VerifyResponse } from '@/types';
+import type { ClientSignature, VerifyMatch, VerifyResponse } from '@/types';
+import { verifyClientSignatureEip712 } from '@/lib/wallet/serverVerify';
 
 export async function GET(request: NextRequest): Promise<NextResponse<VerifyResponse>> {
   // Check if Hedera is configured
@@ -86,11 +87,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<VerifyResp
 
     try {
       const matches = await findHashMatches(normalizedHash);
+      const enriched = await addSignatureValidation(matches);
 
       return NextResponse.json({
         ok: true,
-        found: matches.length > 0,
-        matches,
+        found: enriched.length > 0,
+        matches: enriched,
       });
     } catch (error) {
       console.error('Verify hash error:', error);
@@ -126,11 +128,12 @@ export async function GET(request: NextRequest): Promise<NextResponse<VerifyResp
 
     try {
       const matches = await findCommitmentMatches(normalizedCommitment);
+      const enriched = await addSignatureValidation(matches);
 
       return NextResponse.json({
         ok: true,
-        found: matches.length > 0,
-        matches,
+        found: enriched.length > 0,
+        matches: enriched,
       });
     } catch (error) {
       console.error('Verify commitment error:', error);
@@ -155,6 +158,41 @@ export async function GET(request: NextRequest): Promise<NextResponse<VerifyResp
       error: 'Invalid request',
     },
     { status: 400 }
+  );
+}
+
+async function addSignatureValidation(matches: VerifyMatch[]): Promise<VerifyMatch[]> {
+  if (!matches.length) return matches;
+
+  const hederaNetwork = process.env.HEDERA_NETWORK === 'mainnet' ? 'mainnet' : 'testnet';
+  const expectedChainId = hederaNetwork === 'mainnet' ? 295 : 296;
+
+  return Promise.all(
+    matches.map(async (m) => {
+      const signer = m.message.signer;
+      if (!signer?.signature) return m;
+
+      // Recreate the ClientSignature shape for verification
+      const clientSignature: ClientSignature = {
+        wallet: signer.wallet,
+        accountId: signer.accountId,
+        evmAddress: signer.evmAddress,
+        scheme: signer.signature.scheme,
+        payloadHash: signer.signature.payloadHash,
+        sig: signer.signature.sig,
+      };
+
+      const v = await verifyClientSignatureEip712({
+        payload: m.message,
+        clientSignature,
+        chainId: expectedChainId,
+      });
+
+      return {
+        ...m,
+        signatureValid: v.ok,
+      };
+    })
   );
 }
 

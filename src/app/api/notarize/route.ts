@@ -24,6 +24,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { submitToHCS, validatePayload } from '@/lib/hedera/hcs';
 import { isHederaConfigured } from '@/lib/hedera/client';
 import type { NotarizeRequest, NotarizeResponse } from '@/types';
+import { verifyClientSignatureEip712 } from '@/lib/wallet/serverVerify';
 
 // Rate limiting: simple in-memory store (for MVP)
 // In production, use Redis or similar
@@ -150,10 +151,41 @@ export async function POST(request: NextRequest): Promise<NextResponse<NotarizeR
   }
 
   // TODO: Validate client signature if present
-  // This will be implemented in Step 11 (Wallet Integration)
   if (body.clientSignature) {
-    // For now, just include signer info in payload if provided
-    // Full signature verification comes later
+    // Verify MetaMask EIP-712 signature before submitting to Hedera.
+    // ChainId must match the wallet chain used for signing.
+    const hederaNetwork = process.env.HEDERA_NETWORK === 'mainnet' ? 'mainnet' : 'testnet';
+    const expectedChainId = hederaNetwork === 'mainnet' ? 295 : 296;
+
+    const verification = await verifyClientSignatureEip712({
+      payload: body.payload,
+      clientSignature: body.clientSignature,
+      chainId: expectedChainId,
+    });
+
+    if (!verification.ok) {
+      return NextResponse.json(
+        {
+          ok: false,
+          topicId: '',
+          transactionId: '',
+          error: `Invalid signature: ${verification.error}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Copy signer object into final on-chain payload (verifiable later)
+    body.payload.signer = {
+      wallet: 'MetaMask',
+      evmAddress: body.clientSignature.evmAddress,
+      signature: {
+        scheme: 'EIP712',
+        signedAt: new Date().toISOString(),
+        payloadHash: verification.payloadHash,
+        sig: body.clientSignature.sig,
+      },
+    };
   }
 
   // Submit to HCS
