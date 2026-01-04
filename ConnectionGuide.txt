@@ -1,0 +1,110 @@
+# Hedera Notary Log - Connection Guide
+# =====================================
+# This file documents all ports, API endpoints, and connections used by the application.
+# Last updated: 2026-01-04
+
+================================================================================
+LOCAL DEVELOPMENT
+================================================================================
+
+Application Port:
+  - URL: http://localhost:3000
+  - Description: Next.js development server
+
+API Endpoints (Local):
+  - POST http://localhost:3000/api/notarize
+    - Purpose: Submit document hash to Hedera Consensus Service
+    - Request: { payload: {...}, clientSignature?: {...} }
+    - Response: { topicId, transactionId, sequenceNumber?, consensusTimestamp? }
+
+  - GET http://localhost:3000/api/verify?hash=<sha256_hex>
+    - Purpose: Verify if a hash exists on HCS
+    - Response: { ok: true, found: boolean, matches: [...] }
+
+  - GET http://localhost:3000/api/verify?commitment=<hex>
+    - Purpose: Verify if a commitment exists on HCS (private mode)
+    - Response: { ok: true, found: boolean, matches: [...] }
+
+================================================================================
+HEDERA NETWORK ENDPOINTS
+================================================================================
+
+Testnet (Development):
+  - Consensus Nodes: Automatically handled by @hashgraph/sdk
+  - Mirror Node REST: https://testnet.mirrornode.hedera.com
+  - Portal (Account Creation): https://portal.hedera.com/
+
+Mainnet (Production):
+  - Consensus Nodes: Automatically handled by @hashgraph/sdk
+  - Mirror Node REST: https://mainnet-public.mirrornode.hedera.com
+
+================================================================================
+MIRROR NODE API ENDPOINTS USED
+================================================================================
+
+Topic Messages Query:
+  - Endpoint: GET /api/v1/topics/{topicId}/messages
+  - Parameters:
+    - limit: Number of messages per page (max 100)
+    - order: 'asc' or 'desc'
+    - timestamp: Filter by timestamp range
+    - sequencenumber: Filter by sequence number
+  - Documentation: https://docs.hedera.com/hedera/sdks-and-apis/rest-api
+
+Example:
+  GET https://testnet.mirrornode.hedera.com/api/v1/topics/0.0.123456/messages?limit=100&order=desc
+
+================================================================================
+ENVIRONMENT VARIABLES REFERENCE
+================================================================================
+
+Required:
+  - HEDERA_NETWORK: 'testnet' or 'mainnet'
+  - HEDERA_OPERATOR_ID: Account ID (e.g., 0.0.123456)
+  - HEDERA_OPERATOR_KEY: Private key (DER encoded)
+  - HEDERA_TOPIC_ID: HCS Topic ID (e.g., 0.0.789012)
+  - MIRROR_NODE_BASE_URL: Mirror Node REST API base
+
+Optional:
+  - MAX_MESSAGE_BYTES: Max payload size (default: 4096)
+  - RATE_LIMIT_PER_MINUTE: Rate limit per IP (default: 60)
+  - NEXT_PUBLIC_BASE_URL: Base URL for verification links
+
+================================================================================
+WALLET CONNECTIONS (When Implemented)
+================================================================================
+
+HashPack Wallet:
+  - Documentation: https://docs.hashpack.app/
+  - Connection: Uses hashconnect library
+
+MetaMask (Hedera EVM):
+  - RPC Endpoint (Testnet): https://testnet.hashio.io/api
+  - RPC Endpoint (Mainnet): https://mainnet.hashio.io/api
+  - Chain ID (Testnet): 296
+  - Chain ID (Mainnet): 295
+
+================================================================================
+VERCEL DEPLOYMENT
+================================================================================
+
+Production URL: [To be configured after deployment]
+
+Environment Variables (Set in Vercel Dashboard):
+  - All variables from .env.example must be configured
+  - Use Vercel's encrypted environment variables for sensitive keys
+
+Serverless Function Limits:
+  - Hobby Plan: 10 second timeout
+  - Pro Plan: 60 second timeout
+
+================================================================================
+NOTES
+================================================================================
+
+1. The Hedera SDK handles consensus node connections automatically based on HEDERA_NETWORK
+2. All HCS message submissions go through the SDK, not direct HTTP calls
+3. Mirror Node queries can be made directly via fetch/axios
+4. CORS is typically not an issue when calling Mirror Node from server-side
+5. For client-side Mirror Node calls, use the /api/verify proxy endpoint
+
