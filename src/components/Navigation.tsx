@@ -10,6 +10,7 @@ export default function Navigation() {
     { href: '/', label: 'Home' },
     { href: '/notarize', label: 'Notarize' },
     { href: '/verify', label: 'Verify' },
+    { href: '/history', label: 'History' },
   ];
 
   return (

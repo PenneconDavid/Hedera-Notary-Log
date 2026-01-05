@@ -6,6 +6,7 @@ import HashDisplay from '@/components/HashDisplay';
 import Receipt from '@/components/Receipt';
 import { hashFile, computeCommitment, generateNonce, generateSalt, formatFileSize } from '@/lib/crypto/hash';
 import { hasMetaMask, signNotarizationEip712 } from '@/lib/wallet/metamask';
+import { saveReceipt, saveRevealBundle } from '@/lib/storage/history';
 import type { 
   NotarizeStatus, 
   FileInfo, 
@@ -30,6 +31,7 @@ export default function NotarizePage() {
   const [walletAddress, setWalletAddress] = useState<`0x${string}` | null>(null);
   const [signWithWallet, setSignWithWallet] = useState(false);
   const [minimalMetadata, setMinimalMetadata] = useState(false);
+  const [storeRevealBundleLocally, setStoreRevealBundleLocally] = useState(false);
 
   const handleFileSelect = useCallback(async (selectedFile: File) => {
     setError(null);
@@ -181,6 +183,22 @@ export default function NotarizePage() {
         }
       }
 
+      // Save receipt history (A)
+      try {
+        saveReceipt(newReceipt);
+      } catch {
+        // ignore
+      }
+
+      // Optionally save reveal bundle (B) — contains salt, so opt-in only.
+      if (storeRevealBundleLocally && revealBundle) {
+        try {
+          saveRevealBundle(revealBundle);
+        } catch {
+          // ignore
+        }
+      }
+
       setReceipt(newReceipt);
       setStatus('success');
     } catch (err) {
@@ -188,7 +206,7 @@ export default function NotarizePage() {
       setError(err instanceof Error ? err.message : 'Submission failed. Please try again.');
       setStatus('error');
     }
-  }, [file, note, mode, salt, commitment, signWithWallet, minimalMetadata]);
+  }, [file, note, mode, salt, commitment, signWithWallet, minimalMetadata, storeRevealBundleLocally]);
 
   const handleReset = useCallback(() => {
     setFile(null);
@@ -214,6 +232,17 @@ export default function NotarizePage() {
       {status === 'success' && receipt && (
         <div className="space-y-6">
           <Receipt receipt={receipt} baseUrl={process.env.NEXT_PUBLIC_BASE_URL || ''} />
+          <div className="flex flex-col sm:flex-row gap-3">
+            <a
+              href="/history"
+              className="
+                w-full py-3 px-4 bg-zinc-800 hover:bg-zinc-700
+                text-zinc-100 font-medium rounded-xl
+                transition-colors text-center
+              "
+            >
+              View History
+            </a>
           <button
             onClick={handleReset}
             className="
@@ -224,6 +253,7 @@ export default function NotarizePage() {
           >
             Notarize Another Document
           </button>
+          </div>
         </div>
       )}
 
@@ -288,6 +318,33 @@ export default function NotarizePage() {
               </p>
             )}
           </div>
+
+          {/* Commitment storage option */}
+          {mode === 'commitment' && (
+            <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
+              <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">
+                Commitment mode convenience (optional)
+              </label>
+              <div className="flex items-start justify-between gap-4">
+                <div className="text-xs text-zinc-500">
+                  Save the reveal bundle (includes <span className="text-zinc-300">salt</span>) to this browser so you can download it later from History.
+                  This is convenient but less secure than downloading and storing it offline.
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm text-zinc-200">
+                  <input
+                    type="checkbox"
+                    checked={storeRevealBundleLocally}
+                    onChange={(e) => setStoreRevealBundleLocally(e.target.checked)}
+                    className="accent-emerald-500"
+                  />
+                  Store bundle locally
+                </label>
+              </div>
+              <p className="mt-2 text-xs text-amber-400">
+                Warning: anyone with access to this browser profile could retrieve the salt.
+              </p>
+            </div>
+          )}
 
           {/* Mode Toggle */}
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
