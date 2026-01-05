@@ -29,6 +29,7 @@ export default function NotarizePage() {
   const [commitment, setCommitment] = useState<string | null>(null);
   const [walletAddress, setWalletAddress] = useState<`0x${string}` | null>(null);
   const [signWithWallet, setSignWithWallet] = useState(false);
+  const [minimalMetadata, setMinimalMetadata] = useState(false);
 
   const handleFileSelect = useCallback(async (selectedFile: File) => {
     setError(null);
@@ -91,21 +92,25 @@ export default function NotarizePage() {
                 hash: file.hash,
                 hashAlg: 'SHA-256',
               },
-        file: {
-          size: file.size,
-          name: file.name,
-          mime: file.type,
-        },
+        file: minimalMetadata
+          ? {
+              size: file.size,
+            }
+          : {
+              size: file.size,
+              name: file.name,
+              mime: file.type,
+            },
         meta: {
           clientTs: new Date().toISOString(),
           app: 'notarylog',
           appVersion: APP_VERSION,
           env: (process.env.NEXT_PUBLIC_HEDERA_NETWORK as 'testnet' | 'mainnet') || 'testnet',
           nonce: generateNonce(),
-          ...(note && { note }),
+          ...(!minimalMetadata && note && { note }),
         },
         privacy: {
-          minimalMetadata: false,
+          minimalMetadata,
         },
       };
 
@@ -183,7 +188,7 @@ export default function NotarizePage() {
       setError(err instanceof Error ? err.message : 'Submission failed. Please try again.');
       setStatus('error');
     }
-  }, [file, note, mode, salt, commitment]);
+  }, [file, note, mode, salt, commitment, signWithWallet, minimalMetadata]);
 
   const handleReset = useCallback(() => {
     setFile(null);
@@ -225,6 +230,30 @@ export default function NotarizePage() {
       {/* Main Flow */}
       {status !== 'success' && (
         <div className="space-y-6">
+          {/* Privacy toggles */}
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
+            <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">
+              Privacy
+            </label>
+            <div className="flex items-start justify-between gap-4">
+              <div className="text-xs text-zinc-500">
+                Minimal metadata omits optional fields like filename, MIME type, and note from the on-chain payload.
+              </div>
+              <label className="inline-flex items-center gap-2 text-sm text-zinc-200">
+                <input
+                  type="checkbox"
+                  checked={minimalMetadata}
+                  onChange={(e) => {
+                    setMinimalMetadata(e.target.checked);
+                    if (e.target.checked) setNote('');
+                  }}
+                  className="accent-emerald-500"
+                />
+                Minimal metadata
+              </label>
+            </div>
+          </div>
+
           {/* Wallet signing */}
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
             <div className="flex items-start justify-between gap-4">
@@ -465,25 +494,27 @@ export default function NotarizePage() {
               )}
 
               {/* Optional Note */}
-              <div>
-                <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">
-                  Note (Optional)
-                </label>
-                <textarea
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Add a note about this document..."
-                  className="
-                    w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg
-                    text-zinc-200 placeholder:text-zinc-600
-                    focus:outline-none focus:border-emerald-600
-                    resize-none
-                  "
-                  rows={2}
-                  maxLength={200}
-                />
-                <p className="text-xs text-zinc-600 mt-1">{note.length}/200 characters</p>
-              </div>
+              {!minimalMetadata && (
+                <div>
+                  <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">
+                    Note (Optional)
+                  </label>
+                  <textarea
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Add a note about this document..."
+                    className="
+                      w-full px-4 py-3 bg-zinc-900 border border-zinc-800 rounded-lg
+                      text-zinc-200 placeholder:text-zinc-600
+                      focus:outline-none focus:border-emerald-600
+                      resize-none
+                    "
+                    rows={2}
+                    maxLength={200}
+                  />
+                  <p className="text-xs text-zinc-600 mt-1">{note.length}/200 characters</p>
+                </div>
+              )}
 
               {/* Submit Button */}
               <button
