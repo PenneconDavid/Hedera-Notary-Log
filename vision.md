@@ -1,6 +1,6 @@
 # Hedera Notary Log — vision.md (single source of truth)
 
-**Last updated:** 2026-01-02  
+**Last updated:** 2026-01-05  
 **Project codename:** Notary Log  
 **One-liner:** A tiny “proof-of-existence” app: hash a document locally, anchor that hash to Hedera Consensus Service (HCS), and later verify it was timestamped + ordered (without uploading the document).
 
@@ -17,6 +17,26 @@ Build a small, interview-friendly Hedera app that demonstrates:
 - A privacy-forward mode (salted commitments + optional ZK proof)
 
 **Core promise:** The app never needs to store the actual file—only its cryptographic hash + minimal metadata.
+
+---
+
+## 1.1) Current implementation status (as of 2026-01-05)
+
+**Implemented (working end-to-end):**
+- Notarize page (public hash + private commitment)
+- Verify page (file upload, hash paste, commitment verify via file+salt or reveal bundle)
+- Receipt links (`/verify?hash=...` and `/verify?commitment=...`)
+- Mirror Node verification (paged scan with configurable search depth)
+- MetaMask wallet signing (EIP-712) with server-side verification + signature validation on verify results
+- Minimal metadata toggle (omit filename/MIME/note from on-chain payload)
+- Local History page (`/history`) storing receipts in browser; optional stored reveal bundles (opt-in, contains salt)
+- Tests (Jest) + docs + ConnectionGuide logging all endpoints/connections
+
+**Not yet implemented:**
+- Batch notarize (multi-file submit)
+- HashPack wallet support
+- Optional DB indexer for faster verify
+- Stretch goals: auth, ZK proof bundle, user-paid submissions, analytics
 
 ---
 
@@ -124,16 +144,19 @@ Build a small, interview-friendly Hedera app that demonstrates:
   - Display hash + metadata preview
   - Submit button + submission status
   - Receipt view with copy buttons
+  - History link (post-submit) *(implemented)*
 - Verify page:
   - Paste hash OR upload file
   - Results view with match details
   - Pagination support (or iterative fetch until match)
+  - Explorer links to Mirror Node for matches *(implemented)*
 - Basic layout + empty/error states
 
 **Back-end**
 - Endpoint to submit message to HCS topic
 - Basic validation + rate limiting (very light)
 - Config-driven topic ID and Hedera operator credentials (env vars)
+- Signature verification when wallet signing is present *(implemented for MetaMask EIP-712)*
 
 **Hedera integration**
 - Uses Hedera SDK to submit HCS messages
@@ -149,11 +172,11 @@ Build a small, interview-friendly Hedera app that demonstrates:
 ---
 
 ### Nice-to-have (still small)
-- “Minimal metadata mode” toggle (store only required fields + app version)
-- **Wallet-connected signing** (HashPack / MetaMask): capture signer identity + signature in message payload
-- **Private commitment mode**: store a salted commitment instead of the raw file hash
+- “Minimal metadata mode” toggle (store only required fields + app version) *(implemented)*
+- **Wallet-connected signing** (HashPack / MetaMask): capture signer identity + signature in message payload *(implemented for MetaMask; HashPack pending)*
+- **Private commitment mode**: store a salted commitment instead of the raw file hash *(implemented; SHA-256 salted commitment for MVP)*
 - “Batch notarize” multiple files (submit one message per file)
-- Local history (in browser) of recent receipts
+- Local history (in browser) of recent receipts *(implemented)*
 - Optional DB index (Postgres/SQLite) to speed verification:
   - Store `hash -> {topicId, consensusTimestamp, seq}` after first discovery
 
@@ -250,7 +273,7 @@ Keep it small and stable. Version the schema when you add signer/privacy fields.
   "content": {
     "mode": "commitment",
     "commitment": "<hex>",
-    "commitmentAlg": "POSEIDON2_BN254",
+    "commitmentAlg": "SHA256_SALTED | POSEIDON2_BN254",
     "hashAlg": "SHA-256"
   },
   "meta": { "...": "..." }
@@ -263,7 +286,7 @@ Keep it small and stable. Version the schema when you add signer/privacy fields.
 - **Signature must be verifiable:** define a deterministic signing payload (recommend EIP-712 typed data or canonicalized JSON + `payloadHash`).
 - In commitment mode, `salt` is generated client-side and is **never** submitted to Hedera.
 
-### Receipt format### Receipt format (what the UI shows/saves)
+### Receipt format (what the UI shows/saves)
 ```json
 {
   "mode": "<public_hash|commitment>",
@@ -318,7 +341,7 @@ Keep it small and stable. Version the schema when you add signer/privacy fields.
 
 ---
 
-### `GET /api/verify?hash=<sha256_hex>` OR `GET /api/verify?commitment=<hex>`
+### `GET /api/verify?hash=<sha256_hex>&maxPages=<n>` OR `GET /api/verify?commitment=<hex>&maxPages=<n>`
 **Server responsibilities**
 - Validate query (either `hash` or `commitment`)
 - Query Mirror Node messages for the topic (paged)
@@ -413,6 +436,11 @@ Environment variables (server):
 - `HEDERA_OPERATOR_KEY` = `<private key>`
 - `HEDERA_TOPIC_ID` = `0.0.x`
 - `MIRROR_NODE_BASE_URL` = network mirror REST base
+
+Environment variables (client / public):
+- `NEXT_PUBLIC_HEDERA_NETWORK` = `testnet` | `mainnet` (should match `HEDERA_NETWORK`)
+- `NEXT_PUBLIC_MIRROR_NODE_BASE_URL` = mirror REST base used for UI explorer links (not sensitive)
+- `NEXT_PUBLIC_BASE_URL` = app base URL used to construct shareable verify links
 
 Optional:
 - `MAX_MESSAGE_BYTES`

@@ -41,6 +41,17 @@ export async function GET(request: NextRequest): Promise<NextResponse<VerifyResp
   const { searchParams } = new URL(request.url);
   const hash = searchParams.get('hash');
   const commitment = searchParams.get('commitment');
+  const maxPagesParam = searchParams.get('maxPages');
+
+  // Optional: control how many pages of Mirror Node messages we scan.
+  // (Each page is up to 100 messages in `mirror.ts`.)
+  let maxPages = 20;
+  if (maxPagesParam) {
+    const n = Number.parseInt(maxPagesParam, 10);
+    if (!Number.isNaN(n)) {
+      maxPages = Math.min(Math.max(n, 1), 100);
+    }
+  }
 
   // Validate: must have either hash or commitment, not both
   if (!hash && !commitment) {
@@ -86,7 +97,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<VerifyResp
     }
 
     try {
-      const matches = await findHashMatches(normalizedHash);
+      const matches = await findHashMatches(normalizedHash, maxPages);
       const enriched = await addSignatureValidation(matches);
 
       return NextResponse.json({
@@ -127,7 +138,7 @@ export async function GET(request: NextRequest): Promise<NextResponse<VerifyResp
     }
 
     try {
-      const matches = await findCommitmentMatches(normalizedCommitment);
+      const matches = await findCommitmentMatches(normalizedCommitment, maxPages);
       const enriched = await addSignatureValidation(matches);
 
       return NextResponse.json({

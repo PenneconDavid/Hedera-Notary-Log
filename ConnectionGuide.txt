@@ -1,7 +1,7 @@
 # Hedera Notary Log - Connection Guide
 # =====================================
 # This file documents all ports, API endpoints, and connections used by the application.
-# Last updated: 2026-01-04
+# Last updated: 2026-01-05
 
 ================================================================================
 LOCAL DEVELOPMENT
@@ -17,13 +17,23 @@ API Endpoints (Local):
     - Request: { payload: {...}, clientSignature?: {...} }
     - Response: { topicId, transactionId, sequenceNumber?, consensusTimestamp? }
 
-  - GET http://localhost:3000/api/verify?hash=<sha256_hex>
+  - GET http://localhost:3000/api/verify?hash=<sha256_hex>&maxPages=<n>
     - Purpose: Verify if a hash exists on HCS
     - Response: { ok: true, found: boolean, matches: [...] }
 
-  - GET http://localhost:3000/api/verify?commitment=<hex>
+  - GET http://localhost:3000/api/verify?commitment=<hex>&maxPages=<n>
     - Purpose: Verify if a commitment exists on HCS (private mode)
     - Response: { ok: true, found: boolean, matches: [...] }
+
+UI Routes (Local):
+  - GET http://localhost:3000/notarize
+    - Purpose: Notarize UI (hash locally, submit to HCS)
+
+  - GET http://localhost:3000/verify
+    - Purpose: Verify UI (search by file/hash/commitment)
+
+  - GET http://localhost:3000/history
+    - Purpose: Local receipt history (stored in browser localStorage)
 
 ================================================================================
 HEDERA NETWORK ENDPOINTS
@@ -68,6 +78,8 @@ Required:
 Optional:
   - MAX_MESSAGE_BYTES: Max payload size (default: 4096)
   - RATE_LIMIT_PER_MINUTE: Rate limit per IP (default: 60)
+  - NEXT_PUBLIC_HEDERA_NETWORK: Client-side network indicator (keep in sync with HEDERA_NETWORK)
+  - NEXT_PUBLIC_MIRROR_NODE_BASE_URL: Client-side mirror base URL (for explorer links)
   - NEXT_PUBLIC_BASE_URL: Base URL for verification links
 
 ================================================================================

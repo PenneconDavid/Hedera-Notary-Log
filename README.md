@@ -54,6 +54,8 @@ Perfect for:
    HEDERA_OPERATOR_KEY=YOUR_PRIVATE_KEY
    HEDERA_TOPIC_ID=0.0.YOUR_TOPIC_ID
    MIRROR_NODE_BASE_URL=https://testnet.mirrornode.hedera.com
+   NEXT_PUBLIC_HEDERA_NETWORK=testnet
+   NEXT_PUBLIC_MIRROR_NODE_BASE_URL=https://testnet.mirrornode.hedera.com
    NEXT_PUBLIC_BASE_URL=http://localhost:3000
    ```
 
@@ -77,14 +79,22 @@ Perfect for:
 1. Go to the **Notarize** page
 2. Select or drag-and-drop any file
 3. See the SHA-256 hash computed locally
-4. Click **Submit to Hedera**
+4. (Optional) Enable **Private Commitment** mode and/or **Sign with MetaMask**
+5. Click **Submit to Hedera**
 5. Receive a receipt with transaction ID, topic ID, and consensus timestamp
 
 ### Verify a Document
 
 1. Go to the **Verify** page
-2. Upload the same file (or paste the hash)
-3. See the match with consensus timestamp and sequence number
+2. Choose **Public Hash** or **Private Commitment** verification
+3. Upload the same file (or paste the hash/commitment)
+4. For **Private Commitment**, provide the salt (or upload the reveal bundle) to recompute the commitment locally
+5. See the match with consensus timestamp, sequence number, and signature status (if signed)
+
+### View local history
+
+- Visit **/history** to see receipts stored in this browser
+- You can clear history anytime
 
 ---
 
@@ -98,11 +108,16 @@ Perfect for:
 - ✅ Modern, responsive UI
 - ✅ Rate limiting
 
-### Enhancements (Planned)
-- ⏳ Private commitment mode (salted hashes)
-- ⏳ Wallet-connected signing (HashPack/MetaMask)
-- ⏳ Local receipt history
-- ⏳ Batch notarization
+### Enhancements (Implemented)
+- ✅ Private commitment mode (salted commitments; salt never sent to server/Hedera)
+- ✅ Wallet-connected signing (**MetaMask + EIP-712**) with server-side verification
+- ✅ Minimal metadata mode (omit filename/MIME/note from on-chain payload)
+- ✅ Local receipt history (`/history`) + optional stored reveal bundles (opt-in)
+
+### Enhancements (Planned / Not yet implemented)
+- ⏳ Batch notarization (multi-file submit)
+- ⏳ HashPack wallet support (MetaMask only today)
+- ⏳ DB indexer for faster verify (optional)
 
 ---
 
@@ -114,6 +129,7 @@ src/
 │   ├── api/
 │   │   ├── notarize/route.ts    # HCS submission endpoint
 │   │   └── verify/route.ts      # Mirror Node query endpoint
+│   ├── history/page.tsx         # Local receipt history UI
 │   ├── notarize/page.tsx        # Notarize UI
 │   ├── verify/page.tsx          # Verify UI
 │   └── page.tsx                 # Home page
@@ -121,6 +137,8 @@ src/
 ├── lib/
 │   ├── crypto/hash.ts           # Hashing utilities
 │   └── hedera/                  # Hedera SDK integration
+│   └── wallet/                  # MetaMask EIP-712 signing + server verify
+│   └── storage/                 # Local receipt + reveal bundle storage helpers (browser)
 └── types/index.ts               # TypeScript definitions
 ```
 
@@ -132,8 +150,9 @@ src/
 
 - **Client-side hashing**: Files are hashed in your browser using the Web Crypto API
 - **No file uploads**: Only the 64-character hash is sent to the server
-- **No storage**: We don't store your files, hashes, or any user data
-- **Optional privacy mode**: Use salted commitments (coming soon)
+- **No server storage**: We don't store your files, hashes, receipts, or any user data server-side
+- **Private commitment mode**: Store a salted commitment on Hedera (salt never leaves your device)
+- **Local history**: Stored only in your browser (`localStorage`); you can clear it anytime
 
 ### Security Measures
 
@@ -141,6 +160,7 @@ src/
 - Rate limiting on submission endpoint
 - Input validation on all API endpoints
 - TypeScript strict mode throughout
+- Optional MetaMask EIP-712 signing with server-side verification
 
 ---
 
@@ -162,6 +182,13 @@ Submit a document hash to HCS.
     },
     "file": { "size": 1024, "name": "doc.pdf" },
     "meta": { "app": "notarylog", "appVersion": "0.2.0", ... }
+  },
+  "clientSignature": {
+    "wallet": "MetaMask",
+    "evmAddress": "0x...",
+    "scheme": "EIP712",
+    "payloadHash": "<sha256_hex>",
+    "sig": "0x..."
   }
 }
 ```
@@ -176,7 +203,7 @@ Submit a document hash to HCS.
 }
 ```
 
-### `GET /api/verify?hash=<sha256hex>`
+### `GET /api/verify?hash=<sha256hex>&maxPages=<n>` (or `?commitment=<hex>&maxPages=<n>`)
 
 Verify a hash exists on HCS.
 
@@ -190,7 +217,8 @@ Verify a hash exists on HCS.
       "topicId": "0.0.123456",
       "sequenceNumber": 42,
       "consensusTimestamp": "1234567890.123456789",
-      "message": { ... }
+      "message": { ... },
+      "signatureValid": true
     }
   ]
 }

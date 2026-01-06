@@ -20,6 +20,61 @@ function VerifyContent() {
   const [matches, setMatches] = useState<VerifyMatch[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loadedRevealBundle, setLoadedRevealBundle] = useState<RevealBundle | null>(null);
+  const [maxPages, setMaxPages] = useState<number>(20);
+
+  const verifyHash = useCallback(async (hash: string) => {
+    const normalizedHash = hash.toLowerCase().trim();
+
+    if (!isValidHashFormat(normalizedHash)) {
+      setError('Invalid hash format. Expected 64 lowercase hexadecimal characters.');
+      setStatus('error');
+      return;
+    }
+
+    setError(null);
+    setStatus('searching');
+    setMatches([]);
+
+    try {
+      const response = await fetch(`/api/verify?hash=${normalizedHash}&maxPages=${maxPages}`);
+      const data: VerifyResponse = await response.json();
+
+      if (!data.ok) {
+        throw new Error(data.error || 'Verification failed');
+      }
+
+      setMatches(data.matches);
+      setStatus(data.found ? 'found' : 'not_found');
+    } catch (err) {
+      console.error('Verify error:', err);
+      setError(err instanceof Error ? err.message : 'Verification failed');
+      setStatus('error');
+    }
+  }, [maxPages]);
+
+  const verifyCommitment = useCallback(async (commitment: string) => {
+    const normalizedCommitment = commitment.toLowerCase().trim();
+
+    setError(null);
+    setStatus('searching');
+    setMatches([]);
+
+    try {
+      const response = await fetch(`/api/verify?commitment=${normalizedCommitment}&maxPages=${maxPages}`);
+      const data: VerifyResponse = await response.json();
+
+      if (!data.ok) {
+        throw new Error(data.error || 'Verification failed');
+      }
+
+      setMatches(data.matches);
+      setStatus(data.found ? 'found' : 'not_found');
+    } catch (err) {
+      console.error('Verify error:', err);
+      setError(err instanceof Error ? err.message : 'Verification failed');
+      setStatus('error');
+    }
+  }, [maxPages]);
 
   // Check for URL params on mount
   useEffect(() => {
@@ -39,62 +94,7 @@ function VerifyContent() {
       // Auto-verify commitment
       verifyCommitment(commitmentParam);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
-
-  const verifyHash = useCallback(async (hash: string) => {
-    const normalizedHash = hash.toLowerCase().trim();
-
-    if (!isValidHashFormat(normalizedHash)) {
-      setError('Invalid hash format. Expected 64 lowercase hexadecimal characters.');
-      setStatus('error');
-      return;
-    }
-
-    setError(null);
-    setStatus('searching');
-    setMatches([]);
-
-    try {
-      const response = await fetch(`/api/verify?hash=${normalizedHash}`);
-      const data: VerifyResponse = await response.json();
-
-      if (!data.ok) {
-        throw new Error(data.error || 'Verification failed');
-      }
-
-      setMatches(data.matches);
-      setStatus(data.found ? 'found' : 'not_found');
-    } catch (err) {
-      console.error('Verify error:', err);
-      setError(err instanceof Error ? err.message : 'Verification failed');
-      setStatus('error');
-    }
-  }, []);
-
-  const verifyCommitment = useCallback(async (commitment: string) => {
-    const normalizedCommitment = commitment.toLowerCase().trim();
-
-    setError(null);
-    setStatus('searching');
-    setMatches([]);
-
-    try {
-      const response = await fetch(`/api/verify?commitment=${normalizedCommitment}`);
-      const data: VerifyResponse = await response.json();
-
-      if (!data.ok) {
-        throw new Error(data.error || 'Verification failed');
-      }
-
-      setMatches(data.matches);
-      setStatus(data.found ? 'found' : 'not_found');
-    } catch (err) {
-      console.error('Verify error:', err);
-      setError(err instanceof Error ? err.message : 'Verification failed');
-      setStatus('error');
-    }
-  }, []);
+  }, [searchParams, verifyHash, verifyCommitment]);
 
   const handleFileSelect = useCallback(async (file: File) => {
     setError(null);
@@ -164,7 +164,7 @@ function VerifyContent() {
             found={status === 'found'}
             matches={matches}
             searchTerm={searchTerm}
-            mode={searchParams.get('commitment') ? 'commitment' : 'hash'}
+            mode={verifyMode === 'commitment' ? 'commitment' : 'hash'}
           />
           <button
             onClick={handleReset}
@@ -182,6 +182,31 @@ function VerifyContent() {
       {/* Main Flow */}
       {status !== 'found' && status !== 'not_found' && (
         <div className="space-y-6">
+          {/* Search depth */}
+          <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-1">
+                  Search depth
+                </label>
+                <p className="text-xs text-zinc-500">
+                  Controls how many pages of Mirror Node messages to scan (newest-first). Higher values can be slower.
+                </p>
+              </div>
+              <select
+                value={maxPages}
+                onChange={(e) => setMaxPages(Number.parseInt(e.target.value, 10))}
+                className="px-3 py-2 bg-zinc-900 border border-zinc-800 rounded-lg text-sm text-zinc-200"
+                disabled={status === 'searching'}
+              >
+                <option value={5}>Fast (5 pages)</option>
+                <option value={10}>Normal (10 pages)</option>
+                <option value={20}>Deep (20 pages)</option>
+                <option value={50}>Very deep (50 pages)</option>
+              </select>
+            </div>
+          </div>
+
           {/* Verification Mode */}
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
             <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-3">

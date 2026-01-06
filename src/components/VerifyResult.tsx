@@ -23,6 +23,12 @@ function formatTimestamp(timestamp: string): string {
 }
 
 export default function VerifyResult({ found, matches, searchTerm, mode }: VerifyResultProps) {
+  const mirrorBaseUrl =
+    process.env.NEXT_PUBLIC_MIRROR_NODE_BASE_URL ||
+    (process.env.NEXT_PUBLIC_HEDERA_NETWORK === 'mainnet'
+      ? 'https://mainnet-public.mirrornode.hedera.com'
+      : 'https://testnet.mirrornode.hedera.com');
+
   if (!found) {
     return (
       <div className="w-full bg-zinc-900/80 border border-zinc-800 rounded-xl p-6">
@@ -85,6 +91,29 @@ export default function VerifyResult({ found, matches, searchTerm, mode }: Verif
           )}
 
           <div className="space-y-3">
+            {/* Explorer Links */}
+            <div className="flex items-center justify-between py-2 border-b border-zinc-800/50">
+              <span className="text-sm text-zinc-500">Explorer</span>
+              <div className="flex items-center gap-3">
+                <a
+                  href={`${mirrorBaseUrl}/api/v1/topics/${match.topicId}/messages/${match.sequenceNumber}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-emerald-400 hover:text-emerald-300"
+                >
+                  Message
+                </a>
+                <a
+                  href={`${mirrorBaseUrl}/api/v1/topics/${match.topicId}/messages?order=desc&limit=25`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-emerald-400 hover:text-emerald-300"
+                >
+                  Topic
+                </a>
+              </div>
+            </div>
+
             {/* Consensus Timestamp */}
             <div className="flex items-center justify-between py-2 border-b border-zinc-800/50">
               <span className="text-sm text-zinc-500">Consensus Time</span>
