@@ -35,6 +35,9 @@ UI Routes (Local):
   - GET http://localhost:3000/history
     - Purpose: Local receipt history (stored in browser localStorage)
 
+  - GET http://localhost:3000/whitepaper
+    - Purpose: Plain-English white paper explaining what the app does, threat model, how to use, and how to build/deploy
+
 ================================================================================
 HEDERA NETWORK ENDPOINTS
 ================================================================================

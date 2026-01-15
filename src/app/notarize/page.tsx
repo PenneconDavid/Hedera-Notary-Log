@@ -7,6 +7,7 @@ import Receipt from '@/components/Receipt';
 import { hashFile, computeCommitment, generateNonce, generateSalt, formatFileSize } from '@/lib/crypto/hash';
 import { hasMetaMask, signNotarizationEip712 } from '@/lib/wallet/metamask';
 import { saveReceipt, saveRevealBundle } from '@/lib/storage/history';
+import TrustAndLimitsNotice from '@/components/TrustAndLimitsNotice';
 import type { 
   NotarizeStatus, 
   FileInfo, 
@@ -260,6 +261,8 @@ export default function NotarizePage() {
       {/* Main Flow */}
       {status !== 'success' && (
         <div className="space-y-6">
+          <TrustAndLimitsNotice />
+
           {/* Privacy toggles */}
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
             <label className="block text-xs font-medium text-zinc-500 uppercase tracking-wider mb-2">

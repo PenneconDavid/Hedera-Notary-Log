@@ -11,6 +11,7 @@ export default function Navigation() {
     { href: '/notarize', label: 'Notarize' },
     { href: '/verify', label: 'Verify' },
     { href: '/history', label: 'History' },
+    { href: '/whitepaper', label: 'Whitepaper' },
   ];
 
   return (

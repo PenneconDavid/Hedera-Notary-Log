@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import FileDropzone from '@/components/FileDropzone';
 import HashDisplay from '@/components/HashDisplay';
 import VerifyResult from '@/components/VerifyResult';
+import TrustAndLimitsNotice from '@/components/TrustAndLimitsNotice';
 import { computeCommitment, hashFile, isValidHashFormat } from '@/lib/crypto/hash';
 import type { RevealBundle, VerifyStatus, VerifyMatch, VerifyResponse } from '@/types';
 
@@ -182,6 +183,8 @@ function VerifyContent() {
       {/* Main Flow */}
       {status !== 'found' && status !== 'not_found' && (
         <div className="space-y-6">
+          <TrustAndLimitsNotice />
+
           {/* Search depth */}
           <div className="bg-zinc-900/50 border border-zinc-800 rounded-xl p-4">
             <div className="flex items-center justify-between gap-4">
