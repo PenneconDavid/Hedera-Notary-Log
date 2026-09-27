@@ -11,6 +11,25 @@
 - **Web app:** `npm run dev` → http://localhost:3000
 - **Requires:** Hedera testnet operator credentials in `.env.local`
 
+## Commands
+
+| Task | Command |
+|------|---------|
+| Install | `npm install` |
+| Dev server | `npm run dev` → http://localhost:3000 |
+| Test | `npm test` (Jest) |
+| Typecheck | `npx tsc --noEmit` |
+| Lint | `npm run lint` |
+| Build | `npm run build` |
+
+Dev server and any test that touches the network need Hedera testnet operator credentials in `.env.local` (names in `ConnectionGuide.txt`, never values).
+
+## Definition of done
+
+- `npm test`, typecheck, and lint pass.
+- UI changes: `visual-qa-testing` on the changed page, console clean.
+- `ConnectionGuide.txt` updated if any Hedera endpoint, route, or env var changed.
+
 ## Shared config
 
 - **Skills:** `.agents/skills/` → [cursor-skills](https://github.com/PenneconDavid/cursor-skills)
